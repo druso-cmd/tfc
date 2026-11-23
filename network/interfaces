@@ -1,0 +1,57 @@
+auto lo
+iface lo inet loopback
+
+auto nic0
+iface nic0 inet manual
+
+auto nic1
+iface nic1 inet manual
+
+auto vmbr0
+iface vmbr0 inet static
+    address [IP_PROXMOX]/24
+    gateway [GATEWAY_PROXMOX]
+    bridge-ports nic1
+    bridge-stp off
+    bridge-fd 0
+    post-up echo 1 > /proc/sys/net/ipv4/ip_forward
+    post-up iptables -t nat -A POSTROUTING -s 10.0.0.0/8 -o vmbr0 -j MASQUERADE
+
+auto vmbr1
+iface vmbr1 inet manual
+    bridge-ports nic0
+    bridge-stp off
+    bridge-fd 0
+    bridge-vlan-aware yes
+
+# VLAN 10 - Base de Datos (MariaDB)
+auto vmbr1.10
+iface vmbr1.10 inet static
+    address 10.0.10.1/24
+
+# VLAN 20 - Servidor Web (Apache + PHP)
+auto vmbr1.20
+iface vmbr1.20 inet static
+    address 10.0.20.1/24
+
+# VLAN 30 - Controlador de Dominio (Samba4 AD DC)
+auto vmbr1.30
+iface vmbr1.30 inet static
+    address 10.0.30.1/24
+
+# VLAN 40 - Clientes y Monitorización (Telegraf)
+auto vmbr1.40
+iface vmbr1.40 inet static
+    address 10.0.40.1/24
+
+# REGRAS IPTABLES (Perímetro e Illamento Inter-VLAN)
+    post-up iptables -F FORWARD
+    post-up iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+    post-up iptables -A FORWARD -d 10.0.30.10 -j ACCEPT
+    post-up iptables -A FORWARD -s 10.0.20.0/24 -d 10.0.10.10 -p tcp --dport 3306 -j ACCEPT
+    post-up iptables -A FORWARD -d 10.0.10.10 -p tcp --dport 3306 -j ACCEPT
+    post-up iptables -A FORWARD -s 10.0.40.0/24 -d 10.0.20.10 -p tcp -m multiport --dports 80,443 -j ACCEPT
+    post-up iptables -A FORWARD -s 10.0.40.0/24 -d 10.0.10.0/24 -j DROP
+    post-up iptables -A FORWARD -s 10.0.10.0/24 -d 10.0.0.0/8 -j DROP
+    post-up iptables -A FORWARD -s 10.0.20.0/24 -d 10.0.0.0/8 -j DROP
+    post-up iptables -A FORWARD -s 10.0.40.0/24 -d 10.0.0.0/8 -j DROP
